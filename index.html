@@ -162,7 +162,10 @@
   .rep-sub.go { animation: sub 1.2s ease-out; }
   @keyframes sub { 15%, 70% { opacity: 1; letter-spacing: .6em; } 100% { opacity: 0; letter-spacing: .9em; } }
 
-  #wrap.hit { animation: hit .45s ease-out; }
+  #wrap.hit { animation: hit .45s ease-out, shake .4s linear; }
+  @keyframes shake { 10% { transform: translate(-6px, 3px); } 25% { transform: translate(5px, -4px); }
+                     40% { transform: translate(-4px, -2px); } 60% { transform: translate(3px, 3px); }
+                     80% { transform: translate(-1px, -1px); } 100% { transform: none; } }
   @keyframes hit { 0% { box-shadow: inset 0 0 0 0 rgba(0,230,118,0); }
                    30% { box-shadow: inset 0 0 0 4px rgba(0,230,118,.9), inset 0 0 60px rgba(0,230,118,.35); }
                    100% { box-shadow: inset 0 0 0 0 rgba(0,230,118,0); } }
@@ -418,33 +421,89 @@ function celebrate(n) {
   if (!reduceMotion) burst(anchor, gold);
 }
 
-// 肩の位置から光の筋が放射状に飛び散る
+// 肩の位置で爆発：閃光 → 衝撃波 → 火の粉・光の筋 → 煙
+let booms = [], smoke = [];
 function burst(p, gold) {
   const x = p.x * fx.width, y = p.y * fx.height;
+  const k = gold ? 1.6 : 1;   // 10回ごとは規模を大きく
+  booms.push({ x, y, t: 0, r: 90 * k, gold });
   const colors = gold ? ["#ffd54f", "#fff3c4", "#ffb300"] : ["#00e676", "#b9f6ca", "#2b7cff"];
-  const n = gold ? 46 : 26;
-  for (let i = 0; i < n; i++) {
-    const a = Math.PI * 2 * i / n + Math.random() * .3;
-    const sp = 6 + Math.random() * (gold ? 10 : 7);
-    sparks.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1,
-                  decay: .025 + Math.random() * .02, c: colors[i % colors.length] });
+  const n = Math.round(26 * k);
+  for (let i = 0; i < n; i++) {           // 光の筋
+    const a = Math.PI * 2 * i / n + Math.random() * .3, sp = 6 + Math.random() * 8 * k;
+    sparks.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1, decay: .025 + Math.random() * .02,
+                  c: colors[i % colors.length], g: 0, line: true });
+  }
+  for (let i = 0; i < 30 * k; i++) {      // 火の粉（重力で落ちる）
+    const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 9 * k;
+    sparks.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 3, life: 1, decay: .012 + Math.random() * .02,
+                  c: Math.random() < .5 ? "#ff9100" : "#ffea00", g: .28, line: false });
+  }
+  for (let i = 0; i < 10 * k; i++) {      // 煙
+    const a = Math.random() * Math.PI * 2, sp = 1 + Math.random() * 2.5;
+    smoke.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - .8, r: 10 + Math.random() * 14, life: 1 });
   }
   if (!fxRunning) { fxRunning = true; requestAnimationFrame(drawSparks); }
 }
 
 function drawSparks() {
   fctx.clearRect(0, 0, fx.width, fx.height);
+
+  // 煙（普通に重ねる）
+  fctx.globalCompositeOperation = "source-over";
+  for (const m of smoke) {
+    fctx.globalAlpha = m.life * .35;
+    fctx.fillStyle = "#9aa3ad";
+    fctx.beginPath(); fctx.arc(m.x, m.y, m.r, 0, Math.PI * 2); fctx.fill();
+    m.x += m.vx; m.y += m.vy; m.vx *= .96; m.vy = m.vy * .96 - .05; m.r += .9; m.life -= .018;
+  }
+
+  // ここから下は光なので加算合成
   fctx.globalCompositeOperation = "lighter";
+  for (const b of booms) {
+    const t = b.t;
+    // 閃光：中心が白く、外側がオレンジの火の玉が膨らんで消える
+    const fr = b.r * Math.min(1, t / 8) * (1 + t / 40);
+    const fa = Math.max(0, 1 - t / 22);
+    if (fa > 0) {
+      const g = fctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, fr);
+      g.addColorStop(0, `rgba(255,255,255,${fa})`);
+      g.addColorStop(.35, b.gold ? `rgba(255,213,79,${fa})` : `rgba(255,170,60,${fa})`);
+      g.addColorStop(1, "rgba(255,80,0,0)");
+      fctx.globalAlpha = 1; fctx.fillStyle = g;
+      fctx.beginPath(); fctx.arc(b.x, b.y, fr, 0, Math.PI * 2); fctx.fill();
+    }
+    // 衝撃波：細くなりながら広がるリング
+    const sa = Math.max(0, 1 - t / 26);
+    if (sa > 0) {
+      fctx.globalAlpha = sa;
+      fctx.strokeStyle = b.gold ? "#ffe082" : "#ffffff";
+      fctx.lineWidth = 8 * sa + .5;
+      fctx.beginPath(); fctx.arc(b.x, b.y, b.r * .4 + t * 9, 0, Math.PI * 2); fctx.stroke();
+    }
+    b.t++;
+  }
+  booms = booms.filter(b => b.t < 30);
+
   fctx.lineCap = "round";
   for (const s of sparks) {
-    const tx = s.x - s.vx * 3, ty = s.y - s.vy * 3;   // 尾を引く
-    fctx.strokeStyle = s.c; fctx.globalAlpha = s.life; fctx.lineWidth = 3 * s.life + .5;
-    fctx.beginPath(); fctx.moveTo(tx, ty); fctx.lineTo(s.x, s.y); fctx.stroke();
-    s.x += s.vx; s.y += s.vy; s.vx *= .92; s.vy *= .92; s.life -= s.decay;
+    fctx.globalAlpha = s.life;
+    if (s.line) {
+      fctx.strokeStyle = s.c; fctx.lineWidth = 3 * s.life + .5;
+      fctx.beginPath(); fctx.moveTo(s.x - s.vx * 3, s.y - s.vy * 3); fctx.lineTo(s.x, s.y); fctx.stroke();
+      s.vx *= .92; s.vy *= .92;
+    } else {
+      fctx.fillStyle = s.c;
+      fctx.beginPath(); fctx.arc(s.x, s.y, 1.5 + 2 * s.life * Math.random(), 0, Math.PI * 2); fctx.fill();   // ちらつく火の粉
+      s.vx *= .97; s.vy = s.vy * .97 + s.g;
+    }
+    s.x += s.vx; s.y += s.vy; s.life -= s.decay;
   }
   sparks = sparks.filter(s => s.life > 0);
-  fctx.globalAlpha = 1;
-  if (sparks.length) requestAnimationFrame(drawSparks);
+  smoke = smoke.filter(m => m.life > 0);
+  fctx.globalAlpha = 1; fctx.globalCompositeOperation = "source-over";
+
+  if (sparks.length || booms.length || smoke.length) requestAnimationFrame(drawSparks);
   else { fxRunning = false; fctx.clearRect(0, 0, fx.width, fx.height); }
 }
 
