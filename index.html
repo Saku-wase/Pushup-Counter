@@ -3,31 +3,98 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>骨格表示テスト</title>
+<title>腕立て伏せカウンター</title>
 <style>
-  body { margin:0; background:#111; color:#eee; font-family:sans-serif; text-align:center; }
-  #wrap { position:relative; display:inline-block; max-width:100%; margin-top:8px; }
-  video, canvas { width:100%; max-width:720px; display:block; }
-  canvas { position:absolute; top:0; left:0; }
-  .mirror { transform:scaleX(-1); }
-  button { font-size:16px; padding:10px 18px; margin:8px 4px; border:none; border-radius:8px; background:#2b7cff; color:#fff; }
-  #status { margin:6px; font-size:14px; }
-  #info { font-size:18px; color:#ffd600; }
+  :root {
+    --bg: #0e1116;
+    --card: #171b22;
+    --line: #262c36;
+    --text: #e8ecf1;
+    --sub: #8a94a3;
+    --accent: #00e676;
+    --blue: #2b7cff;
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    background: radial-gradient(circle at top, #1a2130, var(--bg) 60%);
+    color: var(--text);
+    font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+    display: flex; justify-content: center;
+  }
+  .app { width: 100%; max-width: 720px; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+
+  header { display: flex; align-items: center; justify-content: space-between; }
+  header h1 { font-size: 20px; margin: 0; letter-spacing: .05em; }
+  #status { font-size: 12px; color: var(--sub); background: var(--card); border: 1px solid var(--line);
+            padding: 4px 10px; border-radius: 999px; }
+
+  /* カメラ映像と回数 */
+  #wrap { position: relative; width: 100%; aspect-ratio: 4 / 3; background: #000;
+          border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); }
+  video, canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .mirror { transform: scaleX(-1); }
+  .count-badge {
+    position: absolute; top: 12px; left: 12px; z-index: 2;
+    background: rgba(0,0,0,.55); backdrop-filter: blur(6px);
+    border-radius: 14px; padding: 6px 18px 10px; text-align: center;
+  }
+  .count-badge small { display: block; font-size: 11px; color: var(--sub); letter-spacing: .1em; }
+  #count { font-size: 64px; font-weight: 800; line-height: 1; color: var(--accent);
+           font-variant-numeric: tabular-nums; transition: transform .15s; }
+  #count.pop { transform: scale(1.25); }
+  .placeholder { position: absolute; inset: 0; display: grid; place-items: center;
+                 color: var(--sub); font-size: 14px; }
+
+  /* 状態表示 */
+  #detail { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+            padding: 10px 14px; font-size: 14px; text-align: center; font-variant-numeric: tabular-nums; }
+
+  /* ボタン */
+  .controls { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
+  button { font: inherit; font-size: 15px; font-weight: 600; padding: 14px 8px; border-radius: 12px;
+           border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer;
+           transition: transform .1s, filter .2s; }
+  button:active { transform: scale(.97); }
+  button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+  button:hover { filter: brightness(1.15); }
+
+  /* 詳細設定 */
+  details { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
+  summary { cursor: pointer; color: var(--sub); font-size: 14px; }
+  .setting { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 13px; color: var(--sub); }
+  .setting input { flex: 1; accent-color: var(--accent); }
+  #info { margin-top: 10px; font-size: 13px; color: #ffd600; }
 </style>
 </head>
 <body>
-<h3>骨格表示テスト</h3>
-<button id="start">カメラ開始</button>
-<button id="flip">カメラ切替</button>
-<button id="reset">リセット</button>
-<div id="count" style="font-size:72px;font-weight:bold;color:#00e676">0</div>
-<div id="detail" style="font-size:16px">肘: --° ／ 状態: -- ／ 体: --</div>
-<div id="status">「カメラ開始」を押してください</div>
-<div>なめらか <input type="range" id="smooth" min="0.5" max="8" step="0.5" value="7"> 反応速い（<span id="smoothVal">7</span>）</div>
-<div id="info">首の角度: -- ／ 使用する腕: --</div>
-<div id="wrap">
-  <video id="video" playsinline muted></video>
-  <canvas id="canvas"></canvas>
+<div class="app">
+  <header>
+    <h1>💪 腕立て伏せカウンター</h1>
+    <span id="status">待機中</span>
+  </header>
+
+  <div id="wrap">
+    <div class="placeholder">「カメラ開始」を押してください</div>
+    <video id="video" playsinline muted></video>
+    <canvas id="canvas"></canvas>
+    <div class="count-badge"><small>回数</small><div id="count">0</div></div>
+  </div>
+
+  <div id="detail">肘: --° ／ 状態: -- ／ 体: --</div>
+
+  <div class="controls">
+    <button id="start" class="primary">カメラ開始</button>
+    <button id="flip">切替</button>
+    <button id="reset">リセット</button>
+  </div>
+
+  <details>
+    <summary>詳細設定</summary>
+    <div class="setting">なめらか <input type="range" id="smooth" min="0.5" max="8" step="0.5" value="7"> 反応速い <span id="smoothVal">7</span></div>
+    <div id="info">首の角度: -- ／ 使用する腕: --</div>
+  </details>
 </div>
 
 <script>
@@ -200,6 +267,7 @@ function updateCount(angle, horiz) {
     if (stage === "down" && performance.now() - lastRep > MIN_GAP) {
       count++; lastRep = performance.now();
       countEl.textContent = count;
+      countEl.classList.add("pop"); setTimeout(() => countEl.classList.remove("pop"), 150);
       speak(count);
     }
     stage = "up";
@@ -244,6 +312,7 @@ document.getElementById("start").onclick = async () => {
     if (!navigator.mediaDevices) throw new Error("カメラが使えない環境です（https か localhost で開いてください）");
     status.textContent = "カメラ起動中…";
     await startCamera();
+    document.querySelector(".placeholder")?.remove();
     if (!landmarker) await loadModel();
     if (!running) { running = true; loop(); }
   } catch (e) {
