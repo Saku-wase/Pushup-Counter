@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>リズムポーズ</title>
+<style>
+body{margin:0;background:#111;color:#fff;font-family:system-ui,sans-serif;display:flex;justify-content:center}
+#wrap{position:relative;width:min(100vw,960px)}
+canvas{width:100%;display:block;background:#000}
+#menu{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:rgba(0,0,0,.75);text-align:center;padding:16px}
+button,select{font-size:18px;padding:8px 18px;border-radius:8px;border:none}
+button{background:#ff3d7f;color:#fff;cursor:pointer}
+button:disabled{background:#555}
+video{display:none}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c" width="960" height="720"></canvas>
+  <div id="menu">
+    <h1>リズムポーズ</h1>
+    <p id="msg">上半身が映る位置に立って、流れてくるポーズをビートに合わせて決めよう！</p>
+    <label>BPM <select id="bpm"><option>80</option><option selected>100</option><option>120</option></select></label>
+    <button id="start" disabled>読み込み中…</button>
+  </div>
+</div>
+<video id="v" playsinline muted></video>
+
+<script type="module">
+import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+const $ = id => document.getElementById(id);
+const cv = $('c'), ctx = cv.getContext('2d'), video = $('v');
+const W = cv.width, H = cv.height;
+
+const POSES = { BANZAI: 'バンザイ', RIGHT: '右手あげ', LEFT: '左手あげ', T: 'Tポーズ' };
+const KEYS = Object.keys(POSES);
+const BONES = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[24,26]];
+const WIN = 0.35, PERFECT = 0.15;          // 判定幅（秒）
+const LANE_Y = H - 100, HIT_X = 110;
+
+let detector, actx, lm = null, game = null, lastT = -1;
+
+// ---------- 初期化 ----------
+try {
+  const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+  detector = await PoseLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+      delegate: "GPU"
+    },
+    runningMode: "VIDEO", numPoses: 1
+  });
+  video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: 960, height: 720 } });
+  await video.play();
+  $('start').disabled = false;
+  $('start').textContent = 'スタート';
+  requestAnimationFrame(loop);
+} catch (e) {
+  $('msg').textContent = '起動に失敗しました: ' + e.message;
+}
+
+// ---------- ポーズ判定 ----------
+function classify(p) {
+  if (!p) return null;
+  const nose = p[0], ls = p[11], rs = p[12], lw = p[15], rw = p[16];
+  if ([ls, rs, lw, rw].some(q => q.visibility < 0.5)) return null;
+  const sw = Math.abs(ls.x - rs.x);
+  const up = w => w.y < nose.y;
+  const down = (w, s) => w.y > s.y + 0.3 * sw;
+  const side = (w, s) => Math.abs(w.y - s.y) < 0.6 * sw && Math.abs(w.x - s.x) > 0.9 * sw;
+  if (up(lw) && up(rw)) return 'BANZAI';
+  if (up(rw) && down(lw, ls)) return 'RIGHT';
+  if (up(lw) && down(rw, rs)) return 'LEFT';
+  if (side(lw, ls) && side(rw, rs)) return 'T';
+  return null;
+}
+
+// ---------- 音 ----------
+function click(t, accent) {
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.frequency.value = accent ? 1320 : 660;
+  g.gain.setValueAtTime(accent ? 0.4 : 0.15, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+  o.connect(g).connect(actx.destination);
+  o.start(t); o.stop(t + 0.1);
+}
+
+// ---------- ゲーム開始 ----------
+$('start').onclick = () => {
+  actx ??= new AudioContext();
+  actx.resume();
+  const beat = 60 / +$('bpm').value, t0 = actx.currentTime + 0.5;
+  const N = 24, LEAD = 8, notes = [];
+  let prev;
+  for (let i = 0; i < N; i++) {
+    let k; do k = KEYS[Math.random() * KEYS.length | 0]; while (k === prev);
+    prev = k;
+    notes.push({ t: t0 + (LEAD + i * 2) * beat, pose: k, best: Infinity, done: false });
+  }
+  const total = LEAD + N * 2 + 4;
+  for (let b = 0; b < total; b++) click(t0 + b * beat, b >= LEAD && (b - LEAD) % 2 === 0 && (b - LEAD) / 2 < N);
+  game = { notes, beat, t0, lead: LEAD, end: t0 + total * beat, score: 0, combo: 0, maxCombo: 0,
+           judge: '', judgeT: 0, cnt: { PERFECT: 0, GOOD: 0, MISS: 0 } };
+  $('menu').style.display = 'none';
+};
+
+// ---------- メインループ ----------
+function loop() {
+  if (video.currentTime !== lastT) {
+    lastT = video.currentTime;
+    lm = detector.detectForVideo(video, performance.now()).landmarks[0] || null;
+  }
+  const cur = classify(lm);
+
+  ctx.save(); ctx.translate(W, 0); ctx.scale(-1, 1);
+  ctx.drawImage(video, 0, 0, W, H);
+  ctx.restore();
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(0, 0, W, H);
+
+  drawSkeleton(cur);
+  ctx.fillStyle = '#fff'; ctx.font = '20px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('今のポーズ: ' + (cur ? POSES[cur] : '—'), 16, 30);
+
+  if (game) updateGame(cur);
+  requestAnimationFrame(loop);
+}
+
+function drawSkeleton(cur) {
+  if (!lm) return;
+  const P = i => [(1 - lm[i].x) * W, lm[i].y * H];   // 鏡写し
+  ctx.lineWidth = 6; ctx.strokeStyle = cur ? '#4dffb8' : '#5ab4ff';
+  for (const [a, b] of BONES) {
+    ctx.beginPath(); ctx.moveTo(...P(a)); ctx.lineTo(...P(b)); ctx.stroke();
+  }
+}
+
+function updateGame(cur) {
+  const g = game, now = actx.currentTime;
+  const pxPerSec = 220 / (2 * g.beat);
+
+  // 判定
+  for (const n of g.notes) {
+    if (n.done) continue;
+    const d = now - n.t;
+    if (Math.abs(d) <= WIN && cur === n.pose) n.best = Math.min(n.best, Math.abs(d));
+    if (d > WIN) {
+      n.done = true;
+      const j = n.best <= PERFECT ? 'PERFECT' : n.best <= WIN ? 'GOOD' : 'MISS';
+      g.cnt[j]++; g.judge = j; g.judgeT = now;
+      if (j === 'MISS') g.combo = 0;
+      else { g.combo++; g.maxCombo = Math.max(g.maxCombo, g.combo); g.score += (j === 'PERFECT' ? 100 : 50) + g.combo * 5; }
+    }
+  }
+
+  // レーン
+  ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(0, LANE_Y - 75, W, 150);
+  ctx.strokeStyle = '#ff3d7f'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.arc(HIT_X, LANE_Y, 62, 0, Math.PI * 2); ctx.stroke();
+  for (const n of g.notes) {
+    const x = HIT_X + (n.t - now) * pxPerSec;
+    if (x < -80 || x > W + 80 || (n.done && n.best > WIN)) continue;
+    drawFigure(n.pose, x, LANE_Y, 50, n.done ? '#4dffb8' : '#fff');
+  }
+
+  // 次のポーズ（大きく表示）
+  const next = g.notes.find(n => !n.done);
+  if (next) {
+    drawFigure(next.pose, W / 2, 170, 90, cur === next.pose ? '#4dffb8' : '#ffd84d');
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 32px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(POSES[next.pose], W / 2, 300);
+  }
+
+  // カウントイン
+  const beatNo = Math.floor((now - g.t0) / g.beat);
+  if (beatNo >= 0 && beatNo < g.lead) {
+    ctx.font = 'bold 120px sans-serif'; ctx.fillStyle = '#ffd84d'; ctx.textAlign = 'center';
+    ctx.fillText(beatNo < 4 ? 'Ready' : String(g.lead - beatNo), W / 2, H / 2 + 60);
+  }
+
+  // 判定表示・スコア
+  if (now - g.judgeT < 0.5) {
+    ctx.font = 'bold 56px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = { PERFECT: '#ffd84d', GOOD: '#4dffb8', MISS: '#ff6b6b' }[g.judge];
+    ctx.fillText(g.judge, W / 2, H / 2 + 120);
+  }
+  ctx.font = 'bold 28px sans-serif'; ctx.fillStyle = '#fff'; ctx.textAlign = 'right';
+  ctx.fillText('SCORE ' + g.score, W - 16, 36);
+  ctx.fillText(g.combo + ' COMBO', W - 16, 72);
+
+  if (now > g.end) {
+    const c = g.cnt;
+    $('msg').innerHTML = `スコア <b>${g.score}</b><br>PERFECT ${c.PERFECT} / GOOD ${c.GOOD} / MISS ${c.MISS}<br>最大コンボ ${g.maxCombo}`;
+    $('start').textContent = 'もう一度';
+    $('menu').style.display = 'flex';
+    game = null;
+  }
+}
+
+// 棒人間アイコン（画面の右＝本人の右手）
+function drawFigure(pose, x, y, s, color) {
+  const arm = { up: [0.4, -1.0], side: [0.8, 0], down: [0.3, 0.6] };
+  const [L, R] = { BANZAI: ['up', 'up'], RIGHT: ['down', 'up'], LEFT: ['up', 'down'], T: ['side', 'side'] }[pose];
+  const sy = y - s * 0.45;
+  ctx.strokeStyle = color; ctx.lineWidth = Math.max(3, s / 10); ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.arc(x, y - s * 0.8, s * 0.22, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x, y - s * 0.58); ctx.lineTo(x, y + s * 0.35);                  // 胴
+  ctx.moveTo(x, y + s * 0.35); ctx.lineTo(x - s * 0.3, y + s);               // 脚
+  ctx.moveTo(x, y + s * 0.35); ctx.lineTo(x + s * 0.3, y + s);
+  ctx.moveTo(x, sy); ctx.lineTo(x - arm[L][0] * s, sy + arm[L][1] * s);      // 画面左の腕
+  ctx.moveTo(x, sy); ctx.lineTo(x + arm[R][0] * s, sy + arm[R][1] * s);      // 画面右の腕
+  ctx.stroke();
+}
+</script>
+</body>
+</html>
