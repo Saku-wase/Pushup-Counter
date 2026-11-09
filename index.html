@@ -131,6 +131,42 @@
   button:active { transform: scale(.94); transition-duration: .08s; }
 
   /* 動きを減らす設定の端末ではアニメーションを止める */
+  /* ===== 腕立て1回ごとのエフェクト ===== */
+  #fx { pointer-events: none; z-index: 3; }
+  .sweep {
+    position: absolute; inset: 0; z-index: 3; pointer-events: none; transform: translateX(-120%);
+    background: linear-gradient(115deg, transparent 38%, rgba(255,255,255,.08) 45%,
+                rgba(0,230,118,.45) 50%, rgba(255,255,255,.08) 55%, transparent 62%);
+  }
+  .sweep.go { animation: sweep .65s cubic-bezier(.4,0,.2,1); }
+  .sweep.gold { background: linear-gradient(115deg, transparent 38%, rgba(255,255,255,.1) 45%,
+                rgba(255,213,79,.6) 50%, rgba(255,255,255,.1) 55%, transparent 62%); }
+  @keyframes sweep { to { transform: translateX(120%); } }
+
+  .rep-pop {
+    position: absolute; inset: 0; z-index: 4; display: grid; place-items: center; pointer-events: none;
+    font-size: clamp(96px, 30vw, 210px); font-weight: 900; font-style: italic; letter-spacing: -.05em;
+    color: transparent; -webkit-text-stroke: 3px var(--accent); opacity: 0;
+  }
+  .rep-pop.gold { -webkit-text-stroke-color: #ffd54f; --glow: #ffd54f; }
+  .rep-pop.go { animation: repPop .85s cubic-bezier(.2,.8,.2,1); }
+  @keyframes repPop {
+    0%   { opacity: 0; transform: scale(2.4) skewX(-14deg); filter: blur(10px); }
+    22%  { opacity: 1; transform: scale(1) skewX(-14deg); filter: blur(0);
+           text-shadow: 0 0 28px var(--glow, var(--accent)); }
+    70%  { opacity: .9; transform: scale(1.04) skewX(-14deg); }
+    100% { opacity: 0; transform: scale(.92) translateY(-34px) skewX(-14deg); }
+  }
+  .rep-sub { position: absolute; bottom: 18%; left: 0; right: 0; z-index: 4; text-align: center;
+             font-weight: 800; letter-spacing: .4em; font-size: 14px; color: #ffd54f; opacity: 0; pointer-events: none; }
+  .rep-sub.go { animation: sub 1.2s ease-out; }
+  @keyframes sub { 15%, 70% { opacity: 1; letter-spacing: .6em; } 100% { opacity: 0; letter-spacing: .9em; } }
+
+  #wrap.hit { animation: hit .45s ease-out; }
+  @keyframes hit { 0% { box-shadow: inset 0 0 0 0 rgba(0,230,118,0); }
+                   30% { box-shadow: inset 0 0 0 4px rgba(0,230,118,.9), inset 0 0 60px rgba(0,230,118,.35); }
+                   100% { box-shadow: inset 0 0 0 0 rgba(0,230,118,0); } }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
     .app > * { opacity: 1; transform: none; }
@@ -148,6 +184,10 @@
     <div class="placeholder">「カメラ開始」を押してください</div>
     <video id="video" playsinline muted></video>
     <canvas id="canvas"></canvas>
+    <canvas id="fx"></canvas>
+    <div class="sweep"></div>
+    <div class="rep-pop"></div>
+    <div class="rep-sub"></div>
     <div class="gauge"><div class="gauge-fill"></div></div>
     <div class="count-badge"><small>回数</small><div id="count">0</div></div>
   </div>
@@ -246,6 +286,7 @@ async function startCamera() {
   await video.play();
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
+  fx.width = canvas.width; fx.height = canvas.height;
   const m = facing === "user";
   video.classList.toggle("mirror", m);
   canvas.classList.toggle("mirror", m);
@@ -280,6 +321,8 @@ function drawPose(lm) {
 
   // カウントに使う腕を緑で強調
   const arm = pickArm(lm);
+  // エフェクトの発生位置（肩）。前面カメラは映像が左右反転しているので合わせる
+  if (arm) { const sp = lm[arm.ids[0]]; anchor = { x: facing === "user" ? 1 - sp.x : sp.x, y: sp.y }; }
   if (arm) {
     const [s, e, w] = arm.ids.map(i => px(lm[i]));
     line(s, e, "#00e676", 7); line(e, w, "#00e676", 7);
@@ -338,6 +381,7 @@ function updateCount(angle, horiz) {
       count++; lastRep = performance.now();
       countEl.textContent = count;
       kick(countEl, "pop"); kick(document.querySelector(".count-badge"), "burst");
+      celebrate(count);
       speak(count);
     }
     stage = "up";
@@ -352,6 +396,56 @@ function updateCount(angle, horiz) {
   if (depth < 1) gauge.classList.remove("full");
   detailEl.dataset.stage = stage ?? "";
   detailEl.textContent = `肘: ${angle.toFixed(0)}° ／ 状態: ${stage === "down" ? "下" : stage === "up" ? "上" : "待機"} ／ 体: ${horiz ? "水平 ✅" : "水平でない"}`;
+}
+
+// ===== 腕立て1回ごとのエフェクト =====
+const fx = document.getElementById("fx");
+const fctx = fx.getContext("2d");
+const wrapEl = document.getElementById("wrap");
+const sweepEl = document.querySelector(".sweep");
+const popEl = document.querySelector(".rep-pop");
+const subEl = document.querySelector(".rep-sub");
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let anchor = { x: .5, y: .5 }, sparks = [], fxRunning = false;
+
+function celebrate(n) {
+  const gold = n % 10 === 0;   // 10回ごとは金色の特別演出
+  popEl.textContent = n;
+  popEl.classList.toggle("gold", gold);
+  sweepEl.classList.toggle("gold", gold);
+  kick(popEl, "go"); kick(sweepEl, "go"); kick(wrapEl, "hit");
+  if (gold) { subEl.textContent = `${n} REPS`; kick(subEl, "go"); }
+  if (!reduceMotion) burst(anchor, gold);
+}
+
+// 肩の位置から光の筋が放射状に飛び散る
+function burst(p, gold) {
+  const x = p.x * fx.width, y = p.y * fx.height;
+  const colors = gold ? ["#ffd54f", "#fff3c4", "#ffb300"] : ["#00e676", "#b9f6ca", "#2b7cff"];
+  const n = gold ? 46 : 26;
+  for (let i = 0; i < n; i++) {
+    const a = Math.PI * 2 * i / n + Math.random() * .3;
+    const sp = 6 + Math.random() * (gold ? 10 : 7);
+    sparks.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1,
+                  decay: .025 + Math.random() * .02, c: colors[i % colors.length] });
+  }
+  if (!fxRunning) { fxRunning = true; requestAnimationFrame(drawSparks); }
+}
+
+function drawSparks() {
+  fctx.clearRect(0, 0, fx.width, fx.height);
+  fctx.globalCompositeOperation = "lighter";
+  fctx.lineCap = "round";
+  for (const s of sparks) {
+    const tx = s.x - s.vx * 3, ty = s.y - s.vy * 3;   // 尾を引く
+    fctx.strokeStyle = s.c; fctx.globalAlpha = s.life; fctx.lineWidth = 3 * s.life + .5;
+    fctx.beginPath(); fctx.moveTo(tx, ty); fctx.lineTo(s.x, s.y); fctx.stroke();
+    s.x += s.vx; s.y += s.vy; s.vx *= .92; s.vy *= .92; s.life -= s.decay;
+  }
+  sparks = sparks.filter(s => s.life > 0);
+  fctx.globalAlpha = 1;
+  if (sparks.length) requestAnimationFrame(drawSparks);
+  else { fxRunning = false; fctx.clearRect(0, 0, fx.width, fx.height); }
 }
 
 // アニメーション用クラスを付け直して毎回再生させる
