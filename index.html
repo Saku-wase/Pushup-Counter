@@ -4,20 +4,20 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>腕立て伏せカウンター</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22lg%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%232b7cff%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%2300e676%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%229%22%20fill%3D%22url%28%23lg%29%22/%3E%3Cg%20stroke%3D%22%230e1116%22%20stroke-width%3D%222.6%22%20stroke-linecap%3D%22round%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M6%2024H26%22%20opacity%3D%22.45%22/%3E%3Cpath%20d%3D%22M8%2022.5L21%2016%22/%3E%3Cpath%20d%3D%22M20.2%2016.4V22.8%22/%3E%3C/g%3E%3Ccircle%20cx%3D%2224.4%22%20cy%3D%2214.4%22%20r%3D%222.5%22%20fill%3D%22%230e1116%22/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22lg%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%232b7cff%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%2300e676%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20fill%3D%22%23ff5a1f%22/%3E%3Cg%20stroke%3D%22%230e1116%22%20stroke-width%3D%222.6%22%20stroke-linecap%3D%22round%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M6%2024H26%22%20opacity%3D%22.45%22/%3E%3Cpath%20d%3D%22M8%2022.5L21%2016%22/%3E%3Cpath%20d%3D%22M20.2%2016.4V22.8%22/%3E%3C/g%3E%3Ccircle%20cx%3D%2224.4%22%20cy%3D%2214.4%22%20r%3D%222.5%22%20fill%3D%22%230e1116%22/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=M+PLUS+1:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0e1116;
-    --card: #171b22;
-    --line: #262c36;
-    --text: #e8ecf1;
-    --sub: #8a94a3;
-    --accent: #00e676;
-    --blue: #2b7cff;
-    --radius: 16px;
+    --bg: #0a0a0a;
+    --card: #141414;
+    --line: #2c2c2c;
+    --text: #f2efe8;
+    --sub: #8c8a85;
+    --accent: #ff5a1f;
+    --blue: #f2efe8;
+    --radius: 0;
   }
   * { box-sizing: border-box; }
   body {
@@ -33,7 +33,7 @@
   header h1 { font-size: 19px; margin: 0; letter-spacing: .04em; display: flex; align-items: center; gap: 10px; font-weight: 700; }
   header h1 b { background: linear-gradient(90deg, var(--blue), var(--accent)); -webkit-background-clip: text;
                 background-clip: text; color: transparent; }
-  .logo { width: 32px; height: 32px; flex: none; filter: drop-shadow(0 4px 12px rgba(0,230,118,.25)); }
+  .logo { width: 32px; height: 32px; flex: none; filter: drop-shadow(0 4px 12px rgba(255,90,31,.25)); }
   #status { font-size: 12px; color: var(--sub); background: var(--card); border: 1px solid var(--line);
             padding: 4px 10px; border-radius: 999px; }
 
@@ -93,7 +93,7 @@
   #count.pop { transform: none; animation: bump .5s var(--spring); }
   @keyframes bump {
     0%   { transform: translateY(40%) scale(.6); opacity: 0; }
-    60%  { transform: translateY(-8%) scale(1.25); opacity: 1; text-shadow: 0 0 24px var(--accent); }
+    60%  { transform: translateY(-8%) scale(1.25); opacity: 1;  }
     100% { transform: none; }
   }
   /* 回数バッジから光の輪が広がる */
@@ -120,8 +120,8 @@
 
   /* 状態に応じて枠の色がなめらかに変わる */
   #detail { transition: border-color .3s, box-shadow .3s, transform .3s var(--spring); }
-  #detail[data-stage="down"] { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(43,124,255,.2); transform: translateY(2px); }
-  #detail[data-stage="up"] { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,230,118,.15); }
+  #detail[data-stage="down"] { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(242,239,232,.2); transform: translateY(2px); }
+  #detail[data-stage="up"] { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(255,90,31,.15); }
 
   /* 認識中は呼吸するように光る点 */
   #status::before {
@@ -130,7 +130,7 @@
   }
   #status.live { color: var(--accent); }
   #status.live::before { background: var(--accent); animation: breathe 1.6s ease-in-out infinite; }
-  @keyframes breathe { 50% { box-shadow: 0 0 0 5px rgba(0,230,118,0); opacity: .4; } }
+  @keyframes breathe { 50% { box-shadow: 0 0 0 5px rgba(255,90,31,0); opacity: .4; } }
 
   /* ボタン：ばねのような押し心地 */
   button { transition: transform .35s var(--spring), filter .2s, box-shadow .3s; }
@@ -143,7 +143,7 @@
   .sweep {
     position: absolute; inset: 0; z-index: 3; pointer-events: none; transform: translateX(-120%);
     background: linear-gradient(115deg, transparent 38%, rgba(255,255,255,.08) 45%,
-                rgba(0,230,118,.45) 50%, rgba(255,255,255,.08) 55%, transparent 62%);
+                rgba(255,90,31,.45) 50%, rgba(255,255,255,.08) 55%, transparent 62%);
   }
   .sweep.go { animation: sweep .65s cubic-bezier(.4,0,.2,1); }
   .sweep.gold { background: linear-gradient(115deg, transparent 38%, rgba(255,255,255,.1) 45%,
@@ -160,7 +160,7 @@
   @keyframes repPop {
     0%   { opacity: 0; transform: scale(2.4) skewX(-14deg); filter: blur(10px); }
     22%  { opacity: 1; transform: scale(1) skewX(-14deg); filter: blur(0);
-           text-shadow: 0 0 28px var(--glow, var(--accent)); }
+            }
     70%  { opacity: .9; transform: scale(1.04) skewX(-14deg); }
     100% { opacity: 0; transform: scale(.92) translateY(-34px) skewX(-14deg); }
   }
@@ -173,9 +173,9 @@
   @keyframes shake { 10% { transform: translate(-6px, 3px); } 25% { transform: translate(5px, -4px); }
                      40% { transform: translate(-4px, -2px); } 60% { transform: translate(3px, 3px); }
                      80% { transform: translate(-1px, -1px); } 100% { transform: none; } }
-  @keyframes hit { 0% { box-shadow: inset 0 0 0 0 rgba(0,230,118,0); }
-                   30% { box-shadow: inset 0 0 0 4px rgba(0,230,118,.9), inset 0 0 60px rgba(0,230,118,.35); }
-                   100% { box-shadow: inset 0 0 0 0 rgba(0,230,118,0); } }
+  @keyframes hit { 0% { box-shadow: inset 0 0 0 0 rgba(255,90,31,0); }
+                   30% { box-shadow: inset 0 0 0 4px rgba(255,90,31,.9), inset 0 0 60px rgba(255,90,31,.35); }
+                   100% { box-shadow: inset 0 0 0 0 rgba(255,90,31,0); } }
 
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -191,12 +191,39 @@
   .rep-sub { font-family: var(--num); font-weight: 400; font-size: 26px; }
   button { font-weight: 800; letter-spacing: .08em; }
   #status { font-weight: 600; letter-spacing: .05em; }
+
+  /* ===== スポーツ広告風：グラデーション・光・角丸をやめ、黒×オフホワイト×オレンジ1色 ===== */
+  .app *, .app *::before, .app *::after { border-radius: 0 !important; }
+  body { background: var(--bg); animation: none; }
+  header { border-bottom: 4px solid var(--accent); padding-bottom: 10px; }
+  header h1 span { display: flex; flex-direction: column; line-height: 1.15; }
+  header h1 b { background: none; color: var(--accent); }
+  header h1 em { font-family: var(--num); font-style: normal; font-weight: 400; font-size: 13px;
+                 letter-spacing: .35em; color: var(--sub); }
+  .logo { filter: none; }
+  #status { border: 1.5px solid var(--line); }
+  #wrap { border: 2px solid var(--text); }
+  .count-badge { background: var(--bg); backdrop-filter: none; border-left: 6px solid var(--accent);
+                 top: 0; left: 0; padding: 8px 18px 6px 14px; text-align: left; }
+  .gauge { background: rgba(10,10,10,.75); top: 0; bottom: 0; right: 0; width: 10px; }
+  .gauge-fill { background: var(--accent); }
+  #detail { border: 1.5px solid var(--line); }
+  button { border: 2px solid var(--text); background: transparent; text-transform: uppercase; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #0a0a0a; }
+  button:hover { box-shadow: 4px 4px 0 var(--accent); transform: translate(-2px, -2px); filter: none; }
+  button.primary:hover { box-shadow: 4px 4px 0 var(--text); }
+  details { border: 1.5px solid var(--line); }
+  #info { color: var(--sub); }
+  .sweep { background: linear-gradient(115deg, transparent 44%, var(--accent) 44%, var(--accent) 52%, transparent 52%); opacity: .55; }
+  .sweep.gold { background: linear-gradient(115deg, transparent 40%, #f2efe8 40%, #f2efe8 54%, transparent 54%); }
+  .rep-pop.gold { -webkit-text-stroke-color: #f2efe8; }
+  .rep-sub { color: var(--accent); }
 </style>
 </head>
 <body>
 <div class="app">
   <header>
-    <h1><svg class="logo" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b7cff"/><stop offset="1" stop-color="#00e676"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#lg)"/><g stroke="#0e1116" stroke-width="2.6" stroke-linecap="round" fill="none"><path d="M6 24H26" opacity=".45"/><path d="M8 22.5L21 16"/><path d="M20.2 16.4V22.8"/></g><circle cx="24.4" cy="14.4" r="2.5" fill="#0e1116"/></svg><span>腕立て伏せ<b>カウンター</b></span></h1>
+    <h1><svg class="logo" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b7cff"/><stop offset="1" stop-color="#ff5a1f"/></linearGradient></defs><rect width="32" height="32" fill="#ff5a1f"/><g stroke="#0e1116" stroke-width="2.6" stroke-linecap="round" fill="none"><path d="M6 24H26" opacity=".45"/><path d="M8 22.5L21 16"/><path d="M20.2 16.4V22.8"/></g><circle cx="24.4" cy="14.4" r="2.5" fill="#0e1116"/></svg><span>腕立て伏せ<b>カウンター</b><em>PUSH-UP COUNTER</em></span></h1>
     <span id="status">待機中</span>
   </header>
 
@@ -335,9 +362,9 @@ function pickArm(lm) {
 function drawPose(lm) {
   // 見えている点同士だけ線で結ぶ
   for (const c of BODY) {
-    if (ok(lm[c.start]) && ok(lm[c.end])) line(px(lm[c.start]), px(lm[c.end]), "#00e5ff", 4);
+    if (ok(lm[c.start]) && ok(lm[c.end])) line(px(lm[c.start]), px(lm[c.end]), "#f2efe8", 4);
   }
-  for (let i = 11; i < 33; i++) if (ok(lm[i])) dot(px(lm[i]), "#ff3d71", 4);
+  for (let i = 11; i < 33; i++) if (ok(lm[i])) dot(px(lm[i]), "#ff5a1f", 4);
 
   // カウントに使う腕を緑で強調
   const arm = pickArm(lm);
@@ -345,7 +372,7 @@ function drawPose(lm) {
   if (arm) { const sp = lm[arm.ids[0]]; anchor = { x: facing === "user" ? 1 - sp.x : sp.x, y: sp.y }; }
   if (arm) {
     const [s, e, w] = arm.ids.map(i => px(lm[i]));
-    line(s, e, "#00e676", 7); line(e, w, "#00e676", 7);
+    line(s, e, "#ff5a1f", 7); line(e, w, "#ff5a1f", 7);
   }
   if (arm) {
     const [s, e, w] = arm.ids.map(i => px(lm[i]));
@@ -361,7 +388,7 @@ function drawNeck(lm) {
   // 耳・肩・腰は左右どちらか見えていればOK
   if (!(ok(lm[7]) || ok(lm[8])) || !(ok(lm[11]) || ok(lm[12])) || !(ok(lm[23]) || ok(lm[24]))) return null;
   const sh = mid(lm[11], lm[12]), hip = mid(lm[23], lm[24]), head = mid(lm[7], lm[8]);
-  line(sh, head, "#ffd600", 5); dot(head, "#ffd600", 7);
+  line(sh, head, "#8c8a85", 5); dot(head, "#8c8a85", 7);
   const a1 = Math.atan2(sh.y - hip.y, sh.x - hip.x);
   const a2 = Math.atan2(head.y - sh.y, head.x - sh.x);
   let deg = Math.abs((a2 - a1) * 180 / Math.PI);
@@ -444,7 +471,7 @@ function burst(p, gold) {
   const x = p.x * fx.width, y = p.y * fx.height;
   const k = gold ? 1.6 : 1;   // 10回ごとは規模を大きく
   booms.push({ x, y, t: 0, r: 90 * k, gold });
-  const colors = gold ? ["#ffd54f", "#fff3c4", "#ffb300"] : ["#00e676", "#b9f6ca", "#2b7cff"];
+  const colors = gold ? ["#f2efe8", "#ffffff", "#ff5a1f"] : ["#ff5a1f", "#ffb08f", "#f2efe8"];
   const n = Math.round(26 * k);
   for (let i = 0; i < n; i++) {           // 光の筋
     const a = Math.PI * 2 * i / n + Math.random() * .3, sp = 6 + Math.random() * 8 * k;
@@ -485,7 +512,7 @@ function drawSparks() {
     if (fa > 0) {
       const g = fctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, fr);
       g.addColorStop(0, `rgba(255,255,255,${fa})`);
-      g.addColorStop(.35, b.gold ? `rgba(255,213,79,${fa})` : `rgba(255,170,60,${fa})`);
+      g.addColorStop(.35, b.gold ? `rgba(242,239,232,${fa})` : `rgba(255,170,60,${fa})`);
       g.addColorStop(1, "rgba(255,80,0,0)");
       fctx.globalAlpha = 1; fctx.fillStyle = g;
       fctx.beginPath(); fctx.arc(b.x, b.y, fr, 0, Math.PI * 2); fctx.fill();
@@ -494,7 +521,7 @@ function drawSparks() {
     const sa = Math.max(0, 1 - t / 26);
     if (sa > 0) {
       fctx.globalAlpha = sa;
-      fctx.strokeStyle = b.gold ? "#ffe082" : "#ffffff";
+      fctx.strokeStyle = b.gold ? "#ff5a1f" : "#f2efe8";
       fctx.lineWidth = 8 * sa + .5;
       fctx.beginPath(); fctx.arc(b.x, b.y, b.r * .4 + t * 9, 0, Math.PI * 2); fctx.stroke();
     }
