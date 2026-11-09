@@ -20,15 +20,15 @@ video{display:none}
   <canvas id="c" width="960" height="720"></canvas>
   <div id="menu">
     <h1>リズムポーズ</h1>
-    <p id="msg">上半身が映る位置に立って、流れてくるポーズをビートに合わせて決めよう！</p>
-    <label>BPM <select id="bpm"><option>80</option><option selected>100</option><option>120</option></select></label>
+    <p id="msg">上半身が映る位置に立って、流れてくるポーズと手の形（✊🖐✌）をビートに合わせて決めよう！</p>
+    <label>BPM <select id="bpm"><option selected>80</option><option>100</option><option>120</option></select></label>
     <button id="start" disabled>読み込み中…</button>
   </div>
 </div>
 <video id="v" playsinline muted></video>
 
 <script type="module">
-import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+import { PoseLandmarker, HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
 const $ = id => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d'), video = $('v');
@@ -36,11 +36,14 @@ const W = cv.width, H = cv.height;
 
 const POSES = { BANZAI: 'バンザイ', RIGHT: '右手あげ', LEFT: '左手あげ', T: 'Tポーズ' };
 const KEYS = Object.keys(POSES);
-const BONES = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[24,26]];
+const HANDS = { GU: '✊', PA: '🖐', CHOKI: '✌' };
+const HKEYS = Object.keys(HANDS);
+const NEED = { BANZAI: [15, 16], RIGHT: [16], LEFT: [15], T: [15, 16] };   // 形を判定する手首
+const BONES = [[11,12],[11,13],[13,15],[12,14],[14,16]];                    // 上半身のみ
 const WIN = 0.35, PERFECT = 0.15;          // 判定幅（秒）
 const LANE_Y = H - 100, HIT_X = 110;
 
-let detector, actx, lm = null, game = null, lastT = -1;
+let detector, handDet, hands = [], actx, lm = null, game = null, lastT = -1;
 
 // ---------- 初期化 ----------
 try {
@@ -51,6 +54,13 @@ try {
       delegate: "GPU"
     },
     runningMode: "VIDEO", numPoses: 1
+  });
+  handDet = await HandLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+      delegate: "GPU"
+    },
+    runningMode: "VIDEO", numHands: 2
   });
   video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: 960, height: 720 } });
   await video.play();
@@ -77,6 +87,24 @@ function classify(p) {
   return null;
 }
 
+// ---------- 指の形の判定 ----------
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+function handShape(h) {
+  const ext = tip => dist(h[0], h[tip]) > dist(h[0], h[tip - 2]) * 1.15;  // 指先が第2関節より手首から遠い＝伸びている
+  const [i, m, r, p] = [8, 12, 16, 20].map(ext);
+  if (!i && !m && !r && !p) return 'GU';
+  if (i && m && r && p) return 'PA';
+  if (i && m && !r && !p) return 'CHOKI';
+  return null;
+}
+function shapeAt(wi) {            // 体の手首に一番近い手の形
+  if (!lm) return null;
+  let best = null, bd = 0.12;
+  for (const h of hands) { const d = dist(h[0], lm[wi]); if (d < bd) { bd = d; best = h; } }
+  return best ? handShape(best) : null;
+}
+const isMatch = (n, cur) => cur === n.pose && NEED[n.pose].every(w => shapeAt(w) === n.hand);
+
 // ---------- 音 ----------
 function click(t, accent) {
   const o = actx.createOscillator(), g = actx.createGain();
@@ -95,9 +123,9 @@ $('start').onclick = () => {
   const N = 24, LEAD = 8, notes = [];
   let prev;
   for (let i = 0; i < N; i++) {
-    let k; do k = KEYS[Math.random() * KEYS.length | 0]; while (k === prev);
-    prev = k;
-    notes.push({ t: t0 + (LEAD + i * 2) * beat, pose: k, best: Infinity, done: false });
+    let k, h; do { k = KEYS[Math.random() * KEYS.length | 0]; h = HKEYS[Math.random() * HKEYS.length | 0]; } while (k + h === prev);
+    prev = k + h;
+    notes.push({ t: t0 + (LEAD + i * 2) * beat, pose: k, hand: h, best: Infinity, done: false });
   }
   const total = LEAD + N * 2 + 4;
   for (let b = 0; b < total; b++) click(t0 + b * beat, b >= LEAD && (b - LEAD) % 2 === 0 && (b - LEAD) / 2 < N);
@@ -110,7 +138,9 @@ $('start').onclick = () => {
 function loop() {
   if (video.currentTime !== lastT) {
     lastT = video.currentTime;
-    lm = detector.detectForVideo(video, performance.now()).landmarks[0] || null;
+    const ts = performance.now();
+    lm = detector.detectForVideo(video, ts).landmarks[0] || null;
+    hands = handDet.detectForVideo(video, ts).landmarks;
   }
   const cur = classify(lm);
 
@@ -121,7 +151,8 @@ function loop() {
 
   drawSkeleton(cur);
   ctx.fillStyle = '#fff'; ctx.font = '20px sans-serif'; ctx.textAlign = 'left';
-  ctx.fillText('今のポーズ: ' + (cur ? POSES[cur] : '—'), 16, 30);
+  const sh = w => HANDS[shapeAt(w)] || '・';
+  ctx.fillText('今のポーズ: ' + (cur ? POSES[cur] : '—') + `  右${sh(16)} 左${sh(15)}`, 16, 30);
 
   if (game) updateGame(cur);
   requestAnimationFrame(loop);
@@ -134,6 +165,10 @@ function drawSkeleton(cur) {
   for (const [a, b] of BONES) {
     ctx.beginPath(); ctx.moveTo(...P(a)); ctx.lineTo(...P(b)); ctx.stroke();
   }
+  ctx.lineWidth = 3; ctx.strokeStyle = '#ffd84d';
+  for (const h of hands) for (const { start, end } of HandLandmarker.HAND_CONNECTIONS) {
+    ctx.beginPath(); ctx.moveTo((1 - h[start].x) * W, h[start].y * H); ctx.lineTo((1 - h[end].x) * W, h[end].y * H); ctx.stroke();
+  }
 }
 
 function updateGame(cur) {
@@ -144,7 +179,7 @@ function updateGame(cur) {
   for (const n of g.notes) {
     if (n.done) continue;
     const d = now - n.t;
-    if (Math.abs(d) <= WIN && cur === n.pose) n.best = Math.min(n.best, Math.abs(d));
+    if (Math.abs(d) <= WIN && isMatch(n, cur)) n.best = Math.min(n.best, Math.abs(d));
     if (d > WIN) {
       n.done = true;
       const j = n.best <= PERFECT ? 'PERFECT' : n.best <= WIN ? 'GOOD' : 'MISS';
@@ -161,15 +196,15 @@ function updateGame(cur) {
   for (const n of g.notes) {
     const x = HIT_X + (n.t - now) * pxPerSec;
     if (x < -80 || x > W + 80 || (n.done && n.best > WIN)) continue;
-    drawFigure(n.pose, x, LANE_Y, 50, n.done ? '#4dffb8' : '#fff');
+    drawFigure(n.pose, n.hand, x, LANE_Y, 50, n.done ? '#4dffb8' : '#fff');
   }
 
   // 次のポーズ（大きく表示）
   const next = g.notes.find(n => !n.done);
   if (next) {
-    drawFigure(next.pose, W / 2, 170, 90, cur === next.pose ? '#4dffb8' : '#ffd84d');
+    drawFigure(next.pose, next.hand, W / 2, 170, 90, isMatch(next, cur) ? '#4dffb8' : '#ffd84d');
     ctx.fillStyle = '#fff'; ctx.font = 'bold 32px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText(POSES[next.pose], W / 2, 300);
+    ctx.fillText(POSES[next.pose] + ' ' + HANDS[next.hand], W / 2, 300);
   }
 
   // カウントイン
@@ -198,20 +233,21 @@ function updateGame(cur) {
   }
 }
 
-// 棒人間アイコン（画面の右＝本人の右手）
-function drawFigure(pose, x, y, s, color) {
-  const arm = { up: [0.4, -1.0], side: [0.8, 0], down: [0.3, 0.6] };
+// 上半身の棒人間アイコン（画面の右＝本人の右手）
+function drawFigure(pose, hand, x, y, s, color) {
+  const arm = { up: [0.45, -0.9], side: [0.85, 0], down: [0.35, 0.6] };
   const [L, R] = { BANZAI: ['up', 'up'], RIGHT: ['down', 'up'], LEFT: ['up', 'down'], T: ['side', 'side'] }[pose];
-  const sy = y - s * 0.45;
+  const sy = y - s * 0.1;
   ctx.strokeStyle = color; ctx.lineWidth = Math.max(3, s / 10); ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.arc(x, y - s * 0.8, s * 0.22, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(x, y - s * 0.45, s * 0.22, 0, Math.PI * 2); ctx.stroke();
   ctx.beginPath();
-  ctx.moveTo(x, y - s * 0.58); ctx.lineTo(x, y + s * 0.35);                  // 胴
-  ctx.moveTo(x, y + s * 0.35); ctx.lineTo(x - s * 0.3, y + s);               // 脚
-  ctx.moveTo(x, y + s * 0.35); ctx.lineTo(x + s * 0.3, y + s);
-  ctx.moveTo(x, sy); ctx.lineTo(x - arm[L][0] * s, sy + arm[L][1] * s);      // 画面左の腕
-  ctx.moveTo(x, sy); ctx.lineTo(x + arm[R][0] * s, sy + arm[R][1] * s);      // 画面右の腕
+  ctx.moveTo(x, y - s * 0.23); ctx.lineTo(x, y + s * 0.7);
+  const ends = [[x - arm[L][0] * s, sy + arm[L][1] * s, L], [x + arm[R][0] * s, sy + arm[R][1] * s, R]];
+  for (const [ex, ey] of ends) { ctx.moveTo(x, sy); ctx.lineTo(ex, ey); }
   ctx.stroke();
+  ctx.font = `${s * 0.45}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const [ex, ey, a] of ends) if (a !== 'down') ctx.fillText(HANDS[hand], ex, ey);
+  ctx.textBaseline = 'alphabetic';
 }
 </script>
 </body>
