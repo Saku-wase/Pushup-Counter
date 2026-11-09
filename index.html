@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>骨格表示テスト</title>
+<style>
+  body { margin:0; background:#111; color:#eee; font-family:sans-serif; text-align:center; }
+  #wrap { position:relative; display:inline-block; max-width:100%; margin-top:8px; }
+  video, canvas { width:100%; max-width:720px; display:block; }
+  canvas { position:absolute; top:0; left:0; }
+  .mirror { transform:scaleX(-1); }
+  button { font-size:16px; padding:10px 18px; margin:8px 4px; border:none; border-radius:8px; background:#2b7cff; color:#fff; }
+  #status { margin:6px; font-size:14px; }
+  #info { font-size:18px; color:#ffd600; }
+</style>
+</head>
+<body>
+<h3>骨格表示テスト</h3>
+<button id="start">カメラ開始</button>
+<button id="flip">カメラ切替</button>
+<button id="reset">リセット</button>
+<div id="count" style="font-size:72px;font-weight:bold;color:#00e676">0</div>
+<div id="detail" style="font-size:16px">肘: --° ／ 状態: -- ／ 体: --</div>
+<div id="status">「カメラ開始」を押してください</div>
+<div>なめらか <input type="range" id="smooth" min="0.5" max="8" step="0.5" value="7"> 反応速い（<span id="smoothVal">7</span>）</div>
+<div id="info">首の角度: -- ／ 使用する腕: --</div>
+<div id="wrap">
+  <video id="video" playsinline muted></video>
+  <canvas id="canvas"></canvas>
+</div>
+
+<script>
+  window.addEventListener("error", e => document.getElementById("status").textContent = "エラー: " + e.message);
+  window.addEventListener("unhandledrejection", e => document.getElementById("status").textContent = "エラー: " + e.reason);
+</script>
+<script type="module">
+import { PoseLandmarker, FilesetResolver }
+  from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+// ===== 設定 =====
+const CONF = 0.65;   // ③ 検出・追跡の信頼度しきい値
+const VIS = 0.6;     // ④ この値未満の点は「見えていない」として使わない
+
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const status = document.getElementById("status");
+const info = document.getElementById("info");
+
+// 顔(0〜10)を除いた体の接続
+const BODY = PoseLandmarker.POSE_CONNECTIONS.filter(c => c.start > 10 && c.end > 10);
+const LEFT_ARM = [11, 13, 15], RIGHT_ARM = [12, 14, 16];
+
+// ===== ② One Euroフィルター（止まっている時は強く、動く時は弱く平滑化）=====
+class OneEuro {
+  constructor(minCutoff = 2.5, beta = 10, dCutoff = 1.0) {
+    Object.assign(this, { minCutoff, beta, dCutoff, x: null, dx: 0, t: null });
+  }
+  alpha(cutoff, dt) { const tau = 1 / (2 * Math.PI * cutoff); return 1 / (1 + tau / dt); }
+  filter(v, t) {
+    if (this.x === null) { this.x = v; this.t = t; return v; }
+    const dt = Math.max((t - this.t) / 1000, 1e-3); this.t = t;
+    const dx = (v - this.x) / dt;
+    this.dx += this.alpha(this.dCutoff, dt) * (dx - this.dx);
+    const cutoff = minCutoffUI + this.beta * Math.abs(this.dx);
+    this.x += this.alpha(cutoff, dt) * (v - this.x);
+    return this.x;
+  }
+}
+// スライダーで調整：値が大きいほど反応が速く、小さいほどなめらか
+let minCutoffUI = 7;
+const slider = document.getElementById("smooth");
+slider.oninput = () => { minCutoffUI = +slider.value; document.getElementById("smoothVal").textContent = slider.value; };
+let filters = null;
+const resetFilters = () => filters = Array.from({ length: 33 }, () => ({ x: new OneEuro(), y: new OneEuro() }));
+function smooth(lm, t) {
+  if (!filters) resetFilters();
+  return lm.map((p, i) => ({ x: filters[i].x.filter(p.x, t), y: filters[i].y.filter(p.y, t), visibility: p.visibility }));
+}
+
+let landmarker, stream, facing = "user", lastTime = -1, running = false;
+
+async function loadModel() {
+  status.textContent = "AIモデル読み込み中…";
+  const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+  const opts = d => ({
+    baseOptions: {
+      // ① Lite → Full モデル
+      modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task",
+      delegate: d
+    },
+    runningMode: "VIDEO",
+    numPoses: 1,
+    minPoseDetectionConfidence: CONF,
+    minPosePresenceConfidence: CONF,
+    minTrackingConfidence: CONF
+  });
+  try { landmarker = await PoseLandmarker.createFromOptions(vision, opts("GPU")); }
+  catch { landmarker = await PoseLandmarker.createFromOptions(vision, opts("CPU")); }
+}
+
+async function startCamera() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: facing, width: 640, height: 480 }, audio: false });  // ⑤ 640×480
+  video.srcObject = stream;
+  await video.play();
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const m = facing === "user";
+  video.classList.toggle("mirror", m);
+  canvas.classList.toggle("mirror", m);
+}
+
+// ===== 描画 =====
+const px = p => ({ x: p.x * canvas.width, y: p.y * canvas.height });
+const ok = p => (p.visibility ?? 1) >= VIS;
+
+function line(a, b, color, w) {
+  ctx.strokeStyle = color; ctx.lineWidth = w;
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+}
+function dot(p, color, r) {
+  ctx.fillStyle = color; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
+}
+
+// ④ 左右の腕のうち、よく見えている方を選ぶ
+function pickArm(lm) {
+  const score = ids => ids.reduce((s, i) => s + (lm[i].visibility ?? 0), 0) / ids.length;
+  const l = score(LEFT_ARM), r = score(RIGHT_ARM);
+  const best = l >= r ? { ids: LEFT_ARM, name: "左", s: l } : { ids: RIGHT_ARM, name: "右", s: r };
+  return best.s >= VIS ? best : null;
+}
+
+function drawPose(lm) {
+  // 見えている点同士だけ線で結ぶ
+  for (const c of BODY) {
+    if (ok(lm[c.start]) && ok(lm[c.end])) line(px(lm[c.start]), px(lm[c.end]), "#00e5ff", 4);
+  }
+  for (let i = 11; i < 33; i++) if (ok(lm[i])) dot(px(lm[i]), "#ff3d71", 4);
+
+  // カウントに使う腕を緑で強調
+  const arm = pickArm(lm);
+  if (arm) {
+    const [s, e, w] = arm.ids.map(i => px(lm[i]));
+    line(s, e, "#00e676", 7); line(e, w, "#00e676", 7);
+  }
+  if (arm) {
+    const [s, e, w] = arm.ids.map(i => px(lm[i]));
+    updateCount(angleAt(s, e, w), isHorizontal(lm));
+  }
+  const neck = drawNeck(lm);
+  info.textContent = `首の角度: ${neck ?? "--"}${neck != null ? "°" : ""} ／ 使用する腕: ${arm ? arm.name : "見えていません"}`;
+}
+
+const mid = (a, b) => ({ x: (a.x + b.x) / 2 * canvas.width, y: (a.y + b.y) / 2 * canvas.height });
+function drawNeck(lm) {
+  const need = [7, 8, 11, 12, 23, 24];
+  // 耳・肩・腰は左右どちらか見えていればOK
+  if (!(ok(lm[7]) || ok(lm[8])) || !(ok(lm[11]) || ok(lm[12])) || !(ok(lm[23]) || ok(lm[24]))) return null;
+  const sh = mid(lm[11], lm[12]), hip = mid(lm[23], lm[24]), head = mid(lm[7], lm[8]);
+  line(sh, head, "#ffd600", 5); dot(head, "#ffd600", 7);
+  const a1 = Math.atan2(sh.y - hip.y, sh.x - hip.x);
+  const a2 = Math.atan2(head.y - sh.y, head.x - sh.x);
+  let deg = Math.abs((a2 - a1) * 180 / Math.PI);
+  if (deg > 180) deg = 360 - deg;
+  return deg.toFixed(0);
+}
+
+// ===== 回数カウント =====
+const DOWN = 90, UP = 160;   // 肘の角度のしきい値
+const HOLD = 2;              // 何フレーム続いたら状態を確定するか（ブレ対策）
+const MIN_GAP = 400;         // 1回の最短時間(ms)。速すぎる誤カウントを防ぐ
+let count = 0, stage = null, holdDown = 0, holdUp = 0, lastRep = 0;
+const countEl = document.getElementById("count");
+const detailEl = document.getElementById("detail");
+
+// 3点 a-b-c の b での角度
+function angleAt(a, b, c) {
+  const r = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
+  let d = Math.abs(r * 180 / Math.PI);
+  return d > 180 ? 360 - d : d;
+}
+
+// 体（腰→肩）が水平に近いか。立ったまま腕を曲げても数えない
+function isHorizontal(lm) {
+  if (!(ok(lm[11]) || ok(lm[12])) || !(ok(lm[23]) || ok(lm[24]))) return false;
+  const sh = mid(lm[11], lm[12]), hip = mid(lm[23], lm[24]);
+  let a = Math.abs(Math.atan2(sh.y - hip.y, sh.x - hip.x) * 180 / Math.PI);
+  return Math.min(a, 180 - a) < 40;
+}
+
+function updateCount(angle, horiz) {
+  holdDown = angle <= DOWN ? holdDown + 1 : 0;
+  holdUp = angle >= UP ? holdUp + 1 : 0;
+
+  if (holdUp >= HOLD) {
+    if (stage === "down" && performance.now() - lastRep > MIN_GAP) {
+      count++; lastRep = performance.now();
+      countEl.textContent = count;
+      speak(count);
+    }
+    stage = "up";
+  } else if (holdDown >= HOLD && stage === "up" && horiz) {
+    stage = "down";
+  }
+  detailEl.textContent = `肘: ${angle.toFixed(0)}° ／ 状態: ${stage === "down" ? "下" : stage === "up" ? "上" : "待機"} ／ 体: ${horiz ? "水平 ✅" : "水平でない"}`;
+}
+
+function speak(n) {
+  if (!window.speechSynthesis) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(String(n));
+  u.lang = "ja-JP";
+  speechSynthesis.speak(u);
+}
+
+document.getElementById("reset").onclick = () => {
+  count = 0; stage = null; countEl.textContent = 0;
+};
+
+function loop() {
+  if (video.currentTime !== lastTime) {
+    lastTime = video.currentTime;
+    const t = performance.now();
+    const result = landmarker.detectForVideo(video, t);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (result.landmarks.length) {
+      drawPose(smooth(result.landmarks[0], t));
+      status.textContent = "認識中 ✅";
+    } else {
+      filters = null;   // 見失ったらフィルターをリセット
+      status.textContent = "人が映っていません";
+      info.textContent = "首の角度: -- ／ 使用する腕: --";
+    }
+  }
+  requestAnimationFrame(loop);
+}
+
+document.getElementById("start").onclick = async () => {
+  try {
+    if (!navigator.mediaDevices) throw new Error("カメラが使えない環境です（https か localhost で開いてください）");
+    status.textContent = "カメラ起動中…";
+    await startCamera();
+    if (!landmarker) await loadModel();
+    if (!running) { running = true; loop(); }
+  } catch (e) {
+    status.textContent = "エラー: " + e.message;
+  }
+};
+
+document.getElementById("flip").onclick = async () => {
+  facing = facing === "user" ? "environment" : "user";
+  if (stream) { filters = null; await startCamera(); }
+};
+</script>
+</body>
+</html>
