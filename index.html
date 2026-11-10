@@ -350,6 +350,7 @@ async function startCamera() {
     video: { facingMode: facing, width: 640, height: 480 }, audio: false });  // ⑤ 640×480
   video.srcObject = stream;
   await video.play();
+  stream.getVideoTracks()[0].addEventListener("ended", () => recoverCamera());
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   fx.width = canvas.width; fx.height = canvas.height;
@@ -588,6 +589,13 @@ document.getElementById("reset").onclick = () => {
 };
 
 function loop() {
+  // 途中でエラーが出てもループを止めない（以前は1回の例外で映像の処理が止まっていた）
+  try { step(); } catch (e) { console.warn(e); }
+  requestAnimationFrame(loop);
+}
+
+function step() {
+  if (video.readyState < 2 || !video.videoWidth) return;   // 映像の準備ができるまで待つ
   if (video.currentTime !== lastTime) {
     lastTime = video.currentTime;
     const t = performance.now();
@@ -602,8 +610,28 @@ function loop() {
       info.textContent = "首の角度: -- ／ 使用する腕: --";
     }
   }
-  requestAnimationFrame(loop);
 }
+
+// ===== カメラが止まらないようにする =====
+let wakeLock = null;
+async function keepAwake() {   // 画面の自動スリープを防ぐ
+  try { if ("wakeLock" in navigator && !wakeLock) {
+    wakeLock = await navigator.wakeLock.request("screen");
+    wakeLock.addEventListener("release", () => wakeLock = null);
+  } } catch {}
+}
+async function recoverCamera() {   // 止まっていたら自動で再開
+  if (!stream) return;
+  const track = stream.getVideoTracks()[0];
+  try {
+    if (!track || track.readyState === "ended") { await startCamera(); filters = null; }
+    else if (video.paused) await video.play();
+  } catch (e) { status.textContent = "カメラを再開できません。もう一度「カメラ開始」を押してください"; }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") { keepAwake(); recoverCamera(); }
+});
+setInterval(recoverCamera, 2000);
 
 document.getElementById("start").onclick = async () => {
   try {
@@ -612,6 +640,7 @@ document.getElementById("start").onclick = async () => {
     await startCamera();
     document.querySelector(".placeholder")?.remove();
     if (!landmarker) await loadModel();
+    keepAwake();
     if (!running) { running = true; loop(); }
   } catch (e) {
     status.textContent = "エラー: " + e.message;
